@@ -2,6 +2,7 @@
 builder = "DOCKERFILE"
 
 [deploy]
+serviceType = "web"
 startCommand = "python bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

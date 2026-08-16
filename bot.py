@@ -70,29 +70,51 @@ def main():
     except Exception as e:
         logger.error("init_db failed (bot will still start, but DB calls will error): %s", e, exc_info=True)
 
-    logger.info("OmniAgent starting...")
+    # Webhook mode when we have a public URL (Railway sets RAILWAY_PUBLIC_DOMAIN).
+    # Polling otherwise (local dev with no public URL). Webhook avoids the Telegram
+    # 409 Conflict you get with polling whenever more than one container is alive
+    # (Railway's zero-downtime deploys, or two services) — Telegram pushes updates
+    # to one URL instead of two instances fighting over getUpdates.
+    public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("WEBHOOK_DOMAIN")
+    webhook_url = os.getenv("WEBHOOK_URL") or (
+        f"https://{public_domain}/{token}" if public_domain else None
+    )
+    port = int(os.getenv("PORT", "8080"))
+
+    mode = "webhook" if webhook_url else "polling"
+    logger.info("OmniAgent starting (mode: %s)...", mode)
     while True:
         app = ApplicationBuilder().token(token).post_init(_post_init).build()
         register_handlers(app)
         app.add_error_handler(error_handler)
         try:
-            app.run_polling(
-                allowed_updates=["message"],
-                bootstrap_retries=10,
-            )
+            if webhook_url:
+                app.run_webhook(
+                    listen="0.0.0.0",
+                    port=port,
+                    url_path=token,
+                    webhook_url=webhook_url,
+                    allowed_updates=["message"],
+                    drop_pending_updates=True,
+                )
+            else:
+                app.run_polling(
+                    allowed_updates=["message"],
+                    bootstrap_retries=10,
+                )
             break  # clean exit
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as e:  # transient network error shouldn't crash the process
-            logger.error("Polling stopped, restarting in 5s: %s", e, exc_info=True)
-            # surface fatal polling errors to admins via a direct API call
+            logger.error("Crashed, restarting in 5s: %s", e, exc_info=True)
+            # surface fatal errors to admins via a direct API call
             try:
                 b = Bot(token)
                 tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
                 loop = asyncio.new_event_loop()
                 for aid in _admin_ids():
                     try:
-                        loop.run_until_complete(b.send_message(aid, f"❌ Polling crash:\n{tb[-3500:]}"))
+                        loop.run_until_complete(b.send_message(aid, f"❌ Crash:\n{tb[-3500:]}"))
                     except Exception:
                         pass
                 loop.close()
