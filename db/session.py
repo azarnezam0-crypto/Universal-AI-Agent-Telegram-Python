@@ -43,6 +43,7 @@ def _sync_missing_columns():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_enabled BOOLEAN;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_voice VARCHAR(50);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS memory_window INTEGER;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS current_session_id INTEGER;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
         """))
     logger.info("init_db: synced users columns (added any that were missing)")

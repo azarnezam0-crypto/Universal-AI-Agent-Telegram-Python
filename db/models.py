@@ -20,6 +20,7 @@ class User(Base):
     tts_enabled = Column(Boolean, default=False)
     tts_voice = Column(String(50), default="alloy")
     memory_window = Column(Integer, default=20)
+    current_session_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

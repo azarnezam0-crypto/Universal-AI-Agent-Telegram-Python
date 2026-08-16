@@ -1,5 +1,5 @@
 from sqlalchemy import desc
-from db.models import User, ConversationHistory, UserPreference
+from db.models import User, ConversationHistory, Session, UserPreference
 
 
 class MemoryService:
@@ -22,11 +22,63 @@ class MemoryService:
                 db.commit()
         return user
 
-    def get_history(self, db, user, limit=None):
+    def get_current_session(self, db, user):
+        """Return the user's active session, creating (and backfilling any
+        session-less history into) one if none exists yet."""
+        if user.current_session_id:
+            sess = db.query(Session).filter(Session.id == user.current_session_id).first()
+            if sess:
+                return sess
+        sess = Session(telegram_id=user.telegram_id)
+        db.add(sess)
+        db.commit()
+        db.refresh(sess)
+        # adopt any pre-session (session_id IS NULL) history as session #1
+        db.query(ConversationHistory).filter(
+            ConversationHistory.telegram_id == user.telegram_id,
+            ConversationHistory.session_id.is_(None),
+        ).update({ConversationHistory.session_id: sess.id})
+        user.current_session_id = sess.id
+        db.commit()
+        return sess
+
+    def new_session(self, db, user):
+        sess = Session(telegram_id=user.telegram_id)
+        db.add(sess)
+        db.commit()
+        db.refresh(sess)
+        user.current_session_id = sess.id
+        db.commit()
+        return sess
+
+    def resume_session(self, db, user, session_id: int):
+        sess = (
+            db.query(Session)
+            .filter(Session.id == session_id, Session.telegram_id == user.telegram_id)
+            .first()
+        )
+        if sess:
+            user.current_session_id = sess.id
+            db.commit()
+        return sess
+
+    def list_sessions(self, db, user):
+        return (
+            db.query(Session)
+            .filter(Session.telegram_id == user.telegram_id)
+            .order_by(desc(Session.started_at))
+            .all()
+        )
+
+    def get_history(self, db, user, limit=None, session=None):
+        session = session or self.get_current_session(db, user)
         limit = limit or (user.memory_window or 20)
         rows = (
             db.query(ConversationHistory)
-            .filter(ConversationHistory.telegram_id == user.telegram_id)
+            .filter(
+                ConversationHistory.telegram_id == user.telegram_id,
+                ConversationHistory.session_id == session.id,
+            )
             .order_by(desc(ConversationHistory.timestamp))
             .limit(limit)
             .all()
@@ -34,21 +86,36 @@ class MemoryService:
         rows = list(reversed(rows))
         return [{"role": r.role, "content": r.content} for r in rows]
 
-    def add_message(self, db, user, role, content, model_used=None):
+    def add_message(self, db, user, role, content, model_used=None, session=None):
+        session = session or self.get_current_session(db, user)
         db.add(
             ConversationHistory(
                 telegram_id=user.telegram_id,
+                session_id=session.id,
                 role=role,
                 content=content,
                 model_used=model_used,
             )
         )
+        session.message_count = (session.message_count or 0) + 1
+        db.commit()
+
+    def clear_session(self, db, user, session=None):
+        session = session or self.get_current_session(db, user)
+        db.query(ConversationHistory).filter(
+            ConversationHistory.telegram_id == user.telegram_id,
+            ConversationHistory.session_id == session.id,
+        ).delete()
+        session.message_count = 0
         db.commit()
 
     def clear_history(self, db, user):
+        """Full wipe: delete all sessions and their messages for the user."""
         db.query(ConversationHistory).filter(
             ConversationHistory.telegram_id == user.telegram_id
         ).delete()
+        db.query(Session).filter(Session.telegram_id == user.telegram_id).delete()
+        user.current_session_id = None
         db.commit()
 
     def set_preference(self, db, user, key, value):
