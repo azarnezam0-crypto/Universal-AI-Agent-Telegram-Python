@@ -1,6 +1,6 @@
 import logging
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker
 from db.models import Base
 
@@ -29,6 +29,7 @@ def init_db():
     #    Hardcoded + idempotent (ADD COLUMN IF NOT EXISTS) so it can't fail on a
     #    column that's already there, and doesn't depend on schema introspection.
     _sync_missing_columns()
+    _ensure_sessions_table()
 
 
 def _sync_missing_columns():
@@ -47,17 +48,27 @@ def _sync_missing_columns():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
         """))
     logger.info("init_db: synced users columns (added any that were missing)")
-    # The 'sessions' table may predate columns added to the model (e.g. it was
-    # created by an older create_all without telegram_id). create_all only makes
-    # missing TABLES, not missing columns, so patch them here idempotently.
-    with engine.begin() as conn:
-        conn.execute(text("""
-            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS telegram_id BIGINT;
-            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
-            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;
-            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS message_count INTEGER;
-        """))
-    logger.info("init_db: synced sessions columns (added any that were missing)")
+
+
+def _ensure_sessions_table():
+    """Recreate the sessions table if it predates the current model schema
+    (e.g. an old table keyed by user_id instead of telegram_id). Patching
+    columns one-by-one can't fix a structural mismatch, so drop+recreate it when
+    stale. Once the table matches the model this is a no-op (survives restarts
+    without wiping conversation sessions)."""
+    from db.models import Session
+
+    inspector = inspect(engine)
+    if not inspector.has_table("sessions"):
+        Base.metadata.create_all(bind=engine, tables=[Session.__table__])
+        return
+    cols = {c["name"] for c in inspector.get_columns("sessions")}
+    if "telegram_id" not in cols or "user_id" in cols:
+        logger.warning("sessions table schema is stale (user_id-based); recreating it")
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS sessions CASCADE"))
+        Base.metadata.create_all(bind=engine, tables=[Session.__table__])
+        logger.info("sessions table recreated from current model")
 
 
 def get_db():
