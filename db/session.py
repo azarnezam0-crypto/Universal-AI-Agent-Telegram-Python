@@ -1,7 +1,10 @@
+import logging
 import os
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from db.models import Base
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -41,6 +44,7 @@ def _sync_missing_columns():
                 conn.execute(
                     text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type}')
                 )
+                logger.info("init_db: added missing column %s.%s", table.name, col.name)
 
 
 def get_db():
