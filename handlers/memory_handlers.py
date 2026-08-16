@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 
 from db.session import SessionLocal
 from services.memory_service import MemoryService
+from services.message_utils import split_message
 
 memory = MemoryService()
 
@@ -17,7 +18,8 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("تاریخچه‌ای نیست.")
             return
         text = "\n\n".join(f"{m['role']}: {m['content']}" for m in rows)
-        await update.message.reply_text(text[:4000])
+        for part in split_message(text):
+            await update.message.reply_text(part)
     finally:
         db.close()
 

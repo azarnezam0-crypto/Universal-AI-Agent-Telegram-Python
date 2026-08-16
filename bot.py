@@ -11,6 +11,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes
 
 from db.session import init_db
 from handlers import register_handlers
+from services.message_utils import split_message
 
 load_dotenv()
 
@@ -54,7 +55,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     text = f"❌ خطا:\n{type(context.error).__name__}: {context.error}"
     for aid in _admin_ids():
         try:
-            await context.application.bot.send_message(aid, text[:4000])
+            for part in split_message(text):
+                await context.application.bot.send_message(aid, part)
         except Exception:
             pass
 

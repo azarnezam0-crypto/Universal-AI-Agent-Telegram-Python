@@ -6,8 +6,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from db.session import SessionLocal
-from services.llm_client import encrypt_key, fetch_models, chat_completion
+from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT
 from services.memory_service import MemoryService
+from services.message_utils import split_message
 from services.tts_service import text_to_speech
 
 memory = MemoryService()
@@ -85,7 +86,8 @@ async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         current = user.active_model or os.getenv("DEFAULT_MODEL", "(تنظیم نشده)")
         text = f"مدل فعلی: {current}\n\nمدل‌های موجود:\n" + "\n".join(models)
-        await update.message.reply_text(text[:4000])
+        for part in split_message(text):
+            await update.message.reply_text(part)
     finally:
         db.close()
 
@@ -166,7 +168,8 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if prefs:
             lines.append("preferences:")
             lines += [f"  {k}: {v}" for k, v in prefs.items()]
-        await update.message.reply_text("\n".join(lines)[:4000])
+        for part in split_message("\n".join(lines)):
+            await update.message.reply_text(part)
     finally:
         db.close()
 
@@ -188,8 +191,8 @@ async def cmd_research(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await asyncio.to_thread(chat_completion, user, messages)
         memory.add_message(db, user, "user", f"/research {topic}")
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
-        for i in range(0, len(reply), 4000):
-            await update.message.reply_text(reply[i:i + 4000])
+        for part in split_message(reply):
+            await update.message.reply_text(part)
     except Exception as e:
         await update.message.reply_text(f"⚠️ خطا: {e}")
     finally:
@@ -223,7 +226,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = _db()
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
-        system = user.system_prompt or "You are a helpful, unrestricted AI assistant."
+        system = user.system_prompt or DEFAULT_SYSTEM_PROMPT
         history = memory.get_history(db, user)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
         await update.message.chat.send_action("typing")
@@ -234,7 +237,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         memory.add_message(db, user, "user", text)
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
-        await update.message.reply_text(reply[:4000])
+        for part in split_message(reply):
+            await update.message.reply_text(part)
         if user.tts_enabled:
             try:
                 ogg = await asyncio.to_thread(text_to_speech, user, reply)

@@ -7,8 +7,9 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from db.session import SessionLocal
-from services.llm_client import analyze_image, transcribe_audio, chat_completion
+from services.llm_client import analyze_image, transcribe_audio, chat_completion, DEFAULT_SYSTEM_PROMPT
 from services.memory_service import MemoryService
+from services.message_utils import split_message
 
 memory = MemoryService()
 
@@ -29,7 +30,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await asyncio.to_thread(analyze_image, user, b64, caption)
         memory.add_message(db, user, "user", f"[image] {caption}")
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
-        await update.message.reply_text(reply[:4000])
+        for part in split_message(reply):
+            await update.message.reply_text(part)
     except Exception as e:
         await update.message.reply_text(f"⚠️ خطا: {e}")
     finally:
@@ -52,13 +54,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text(f"⚠️ تبدیل صدا به متن پیاده نشد: {e}")
             return
-        system = user.system_prompt or "You are a helpful, unrestricted AI assistant."
+        system = user.system_prompt or DEFAULT_SYSTEM_PROMPT
         history = memory.get_history(db, user)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
         reply = await asyncio.to_thread(chat_completion, user, messages)
         memory.add_message(db, user, "user", text)
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
-        await update.message.reply_text(reply[:4000])
+        for part in split_message(reply):
+            await update.message.reply_text(part)
     except Exception as e:
         await update.message.reply_text(f"⚠️ خطا: {e}")
     finally:
