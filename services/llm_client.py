@@ -106,3 +106,30 @@ def transcribe_audio(user, audio_path: str) -> str:
     with open(audio_path, "rb") as f:
         resp = client.audio.transcriptions.create(model="whisper-1", file=f)
     return resp.text
+
+
+def get_base_and_key(user) -> tuple:
+    """Return (base_url, api_key) for raw HTTP calls to extra 9Router endpoints
+    (search, web/fetch) that aren't covered by the OpenAI SDK."""
+    base_url = user.base_url or os.getenv("DEFAULT_BASE_URL", "https://api.openai.com/v1")
+    if user.api_key_encrypted:
+        api_key = decrypt_key(user.api_key_encrypted)
+    else:
+        api_key = os.getenv("DEFAULT_API_KEY", "no-key")
+    return base_url.rstrip("/"), api_key
+
+
+def generate_image(user, prompt: str, model: str | None = None, size: str | None = None) -> dict:
+    """Generate an image via the OpenAI-compatible /v1/images/generations endpoint.
+    Returns {"url": ..., "b64_json": ...} (one will be populated)."""
+    client = get_client(user)
+    model = model or user.active_model or os.getenv("DEFAULT_IMAGE_MODEL", "openai/dall-e-3")
+    kwargs: dict = {"model": model, "prompt": prompt, "n": 1}
+    if size:
+        kwargs["size"] = size
+    resp = client.images.generate(**kwargs)
+    item = resp.data[0]
+    return {
+        "url": getattr(item, "url", None),
+        "b64_json": getattr(item, "b64_json", None),
+    }

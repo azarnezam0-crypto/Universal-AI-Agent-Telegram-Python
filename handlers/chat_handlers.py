@@ -52,6 +52,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/history - تاریخچه\n"
         "/forget یا /newchat - پاک کردن حافظه\n"
         "/research <topic> - جستجوی عمیق\n"
+        "/image <prompt> - ساخت عکس (مدل: DEFAULT_IMAGE_MODEL)\n"
+        "/web <query> - جستجوی وب\n"
+        "/fetch <url> - خواندن محتوای صفحه\n"
         "/setpref <k> <v> - تنظیم دلخواه"
     )
 
