@@ -79,9 +79,6 @@ def main():
             app.run_polling(
                 allowed_updates=["message"],
                 bootstrap_retries=10,
-                read_timeout=30,
-                connect_timeout=30,
-                pool_timeout=30,
             )
             break  # clean exit
         except (KeyboardInterrupt, SystemExit):
