@@ -34,6 +34,8 @@ def init_db():
 def _sync_missing_columns():
     with engine.begin() as conn:
         conn.execute(text("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(100);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(200);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS base_url VARCHAR(500);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_encrypted TEXT;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS active_model VARCHAR(200);

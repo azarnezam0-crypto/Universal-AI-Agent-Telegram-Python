@@ -11,6 +11,8 @@ class User(Base):
     __tablename__ = "users"
 
     telegram_id = Column(BigInteger, primary_key=True)
+    username = Column(String(100), nullable=True)
+    full_name = Column(String(200), nullable=True)
     base_url = Column(String(500), nullable=True)
     api_key_encrypted = Column(Text, nullable=True)
     active_model = Column(String(200), nullable=True)
