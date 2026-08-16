@@ -1,15 +1,19 @@
 """Core chat + setup handlers for OmniAgent."""
 import asyncio
+import logging
 import os
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from db.session import SessionLocal
-from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT
+
+logger = logging.getLogger(__name__)
+from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT, run_agentic
 from services.memory_service import MemoryService
 from services.message_utils import split_message
 from services.tts_service import text_to_speech
+from services.tools import TOOL_DEFINITIONS, TOOL_REGISTRY
 
 memory = MemoryService()
 
@@ -20,6 +24,18 @@ def _admin_ids():
 
 def _db():
     return SessionLocal()
+
+
+def _agentic_reply(user, messages: list[dict]) -> str:
+    """Run an agentic chat turn. Falls back to plain chat if tool-use is
+    disabled or the model/endpoint doesn't support function calling."""
+    if os.getenv("AGENTIC_TOOLS", "true").lower() == "false":
+        return chat_completion(user, messages)
+    try:
+        return run_agentic(user, messages, TOOL_DEFINITIONS, TOOL_REGISTRY)
+    except Exception as e:
+        logger.warning("agentic tool-call failed, falling back to plain chat: %s", e)
+        return chat_completion(user, messages)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -55,7 +71,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/image <prompt> - ساخت عکس (مدل: DEFAULT_IMAGE_MODEL)\n"
         "/web <query> - جستجوی وب\n"
         "/fetch <url> - خواندن محتوای صفحه\n"
-        "/setpref <k> <v> - تنظیم دلخواه"
+        "/setpref <k> <v> - تنظیم دلخواه\n"
+        "💡 در چت معمولی هم بات خودش برای جستجو/خواندن صفحه از وب استفاده می‌کند."
     )
 
 
@@ -244,7 +261,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
         await update.message.chat.send_action("typing")
         try:
-            reply = await asyncio.to_thread(chat_completion, user, messages)
+            reply = await asyncio.to_thread(_agentic_reply, user, messages)
         except Exception as e:
             await update.message.reply_text(f"⚠️ خطا: {e}")
             return

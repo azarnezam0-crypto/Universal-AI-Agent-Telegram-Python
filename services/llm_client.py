@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -133,3 +134,58 @@ def generate_image(user, prompt: str, model: str | None = None, size: str | None
         "url": getattr(item, "url", None),
         "b64_json": getattr(item, "b64_json", None),
     }
+
+
+def run_agentic(user, messages: list[dict], tool_defs: list[dict], tool_registry: dict, max_iter: int = 5) -> str:
+    """Agentic chat loop with tool/function calling.
+
+    Sends `messages` (with `tool_defs`) to the model. If the model emits
+    tool_calls, executes each via `tool_registry` (name -> callable(user, **args))
+    and feeds the results back, looping until the model returns a final answer
+    or `max_iter` is hit. Returns the final assistant text.
+    """
+    client = get_client(user)
+    model = user.active_model or os.getenv("DEFAULT_MODEL", "gpt-4o")
+    convo = list(messages)
+    for _ in range(max_iter):
+        resp = client.chat.completions.create(
+            model=model,
+            messages=convo,
+            tools=tool_defs,
+            tool_choice="auto",
+            max_tokens=2048,
+            temperature=0.7,
+        )
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return msg.content or ""
+        # record the assistant turn that requested the tools
+        convo.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ],
+        })
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                args = {}
+            func = tool_registry.get(name)
+            if func is None:
+                result = f"Unknown tool: {name}"
+            else:
+                try:
+                    result = func(user, **args)
+                except Exception as e:  # tool failure shouldn't kill the loop
+                    result = f"Error in {name}: {e}"
+            convo.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
+    # ran out of iterations — return whatever the model last produced
+    return convo[-1].get("content") or ""
