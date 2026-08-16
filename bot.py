@@ -51,15 +51,17 @@ def main():
     if not token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN not set. Get one from @BotFather.")
 
-    init_db()
-    logger.info("Database initialized.")
-
-    app = ApplicationBuilder().token(token).post_init(_post_init).build()
-    register_handlers(app)
-    app.add_error_handler(error_handler)
+    try:
+        init_db()
+        logger.info("Database initialized.")
+    except Exception as e:
+        logger.error("init_db failed (bot will still start, but DB calls will error): %s", e, exc_info=True)
 
     logger.info("OmniAgent starting...")
     while True:
+        app = ApplicationBuilder().token(token).post_init(_post_init).build()
+        register_handlers(app)
+        app.add_error_handler(error_handler)
         try:
             app.run_polling(
                 allowed_updates=["message"],
@@ -68,6 +70,9 @@ def main():
                 connect_timeout=30,
                 pool_timeout=30,
             )
+            break  # clean exit
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception as e:  # transient network error shouldn't crash the process
             logger.error("Polling stopped, restarting in 5s: %s", e, exc_info=True)
             import time

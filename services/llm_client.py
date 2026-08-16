@@ -1,21 +1,36 @@
+import logging
 import os
 from openai import OpenAI
 from cryptography.fernet import Fernet
 
+logger = logging.getLogger(__name__)
+
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "").encode()
-fernet = Fernet(ENCRYPTION_KEY) if ENCRYPTION_KEY else None
+
+
+def _fernet():
+    """Lazily build the Fernet cipher; never crash at import on a bad key."""
+    if not ENCRYPTION_KEY:
+        return None
+    try:
+        return Fernet(ENCRYPTION_KEY)
+    except Exception:
+        logger.warning("ENCRYPTION_KEY is set but invalid (must be a 32-byte url-safe base64 key from Fernet.generate_key()). API keys will not be encrypted.")
+        return None
 
 
 def encrypt_key(api_key: str) -> str:
-    if not fernet:
-        raise ValueError("ENCRYPTION_KEY env var not set")
-    return fernet.encrypt(api_key.encode()).decode()
+    f = _fernet()
+    if not f:
+        raise ValueError("ENCRYPTION_KEY env var not set or invalid")
+    return f.encrypt(api_key.encode()).decode()
 
 
 def decrypt_key(encrypted: str) -> str:
-    if not fernet:
-        raise ValueError("ENCRYPTION_KEY env var not set")
-    return fernet.decrypt(encrypted.encode()).decode()
+    f = _fernet()
+    if not f:
+        raise ValueError("ENCRYPTION_KEY env var not set or invalid")
+    return f.decrypt(encrypted.encode()).decode()
 
 
 def get_client(user) -> OpenAI:
