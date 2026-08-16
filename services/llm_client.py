@@ -1,7 +1,6 @@
 import logging
 import os
 from openai import OpenAI
-from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
@@ -9,13 +8,19 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "").encode()
 
 
 def _fernet():
-    """Lazily build the Fernet cipher; never crash at import on a bad key."""
+    """Lazily build the Fernet cipher; never crash at import if cryptography
+    is missing (e.g. Termux without Rust) or the key is invalid."""
     if not ENCRYPTION_KEY:
         return None
     try:
+        from cryptography.fernet import Fernet
         return Fernet(ENCRYPTION_KEY)
-    except Exception:
-        logger.warning("ENCRYPTION_KEY is set but invalid (must be a 32-byte url-safe base64 key from Fernet.generate_key()). API keys will not be encrypted.")
+    except Exception as e:
+        logger.warning(
+            "cryptography unavailable or ENCRYPTION_KEY invalid (%s). "
+            "API keys will not be encrypted. Generate a key with "
+            "cryptography.fernet.Fernet.generate_key().", e
+        )
         return None
 
 

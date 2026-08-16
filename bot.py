@@ -1,9 +1,12 @@
 """OmniAgent — self-hosted Telegram AI agent (entry point)."""
+import asyncio
 import logging
 import os
+import time
+import traceback
 
 from dotenv import load_dotenv
-from telegram import BotCommand
+from telegram import Bot, BotCommand
 from telegram.ext import ApplicationBuilder, ContextTypes
 
 from db.session import init_db
@@ -35,6 +38,10 @@ COMMANDS = [
 ]
 
 
+def _admin_ids():
+    return {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+
+
 async def _post_init(app):
     try:
         await app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
@@ -44,6 +51,12 @@ async def _post_init(app):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception while handling an update:", exc_info=context.error)
+    text = f"❌ خطا:\n{type(context.error).__name__}: {context.error}"
+    for aid in _admin_ids():
+        try:
+            await context.application.bot.send_message(aid, text[:4000])
+        except Exception:
+            pass
 
 
 def main():
@@ -75,7 +88,19 @@ def main():
             raise
         except Exception as e:  # transient network error shouldn't crash the process
             logger.error("Polling stopped, restarting in 5s: %s", e, exc_info=True)
-            import time
+            # surface fatal polling errors to admins via a direct API call
+            try:
+                b = Bot(token)
+                tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+                loop = asyncio.new_event_loop()
+                for aid in _admin_ids():
+                    try:
+                        loop.run_until_complete(b.send_message(aid, f"❌ Polling crash:\n{tb[-3500:]}"))
+                    except Exception:
+                        pass
+                loop.close()
+            except Exception:
+                pass
             time.sleep(5)
 
 
