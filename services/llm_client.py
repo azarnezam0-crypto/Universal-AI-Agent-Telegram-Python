@@ -78,22 +78,42 @@ _SKIP_HINTS = ("/image", "/tts", "/stt", "/embedding", "/search", "/fetch", "com
 _PREF_HINTS = ("gemini", "gpt", "claude", "llama", "flash", "opus", "sonnet", "deepseek", "qwen", "mistral")
 
 
-def pick_default_model(models: list[str]) -> str | None:
-    """Choose a sensible default chat model from a 9Router model list.
-
-    Skips capability-specific ids (image/tts/...), then prefers common chat
-    families, falling back to the first remaining model.
-    """
+def rank_models(models: list[str]) -> list[str]:
+    """Order models best-first for auto-selection: skip capability-specific ids,
+    then prefer common chat families, then the rest. Returns a ranked list."""
     if not models:
-        return None
+        return []
     chat_models = [m for m in models if not any(s in m.lower() for s in _SKIP_HINTS)]
     pool = chat_models or models
     lowered = [m.lower() for m in pool]
+    ranked: list[str] = []
+    used: set = set()
     for hint in _PREF_HINTS:
         for m, low in zip(pool, lowered):
-            if hint in low:
-                return m
-    return pool[0]
+            if hint in low and m not in used:
+                ranked.append(m)
+                used.add(m)
+    for m in pool:
+        if m not in used:
+            ranked.append(m)
+            used.add(m)
+    return ranked
+
+
+def pick_default_model(models: list[str]) -> str | None:
+    ranked = rank_models(models)
+    return ranked[0] if ranked else None
+
+
+def probe_model(user, model: str) -> None:
+    """Cheap validation call to confirm a model is usable (has credentials).
+    Raises if the provider/model is unavailable."""
+    client = get_client(user)
+    client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=1,
+    )
 
 
 def chat_completion(user, messages: list[dict]) -> str:

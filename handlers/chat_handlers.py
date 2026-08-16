@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
-from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT, run_agentic, pick_default_model
+from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT, run_agentic, rank_models, probe_model
 from services.memory_service import MemoryService
 from services.message_utils import split_message
 from services.tts_service import text_to_speech
@@ -39,17 +39,25 @@ def _agentic_reply(user, messages: list[dict]) -> str:
 
 
 async def _ensure_model(db, user) -> None:
-    """Auto-pick a chat model on first use so the user never has to /setmodel
-    manually (unless they want a specific one). Skipped if already set or if
-    DEFAULT_MODEL env is provided."""
+    """Auto-pick a usable chat model on first use so the user never has to
+    /setmodel manually. Tries ranked candidates with a real probe call and keeps
+    the first that works (skips providers with no credentials)."""
     if user.active_model or os.getenv("DEFAULT_MODEL"):
         return
     try:
         models = await asyncio.to_thread(fetch_models, user)
-        if models:
-            user.active_model = pick_default_model(models)
-            db.commit()
-            logger.info("auto-selected model %s for user %s", user.active_model, user.telegram_id)
+        if not models:
+            return
+        for candidate in rank_models(models)[:8]:
+            try:
+                await asyncio.to_thread(probe_model, user, candidate)
+                user.active_model = candidate
+                db.commit()
+                logger.info("auto-selected model %s for user %s", candidate, user.telegram_id)
+                return
+            except Exception as e:
+                logger.warning("model %s not usable, trying next: %s", candidate, e)
+        logger.warning("no usable model auto-selected for user %s", user.telegram_id)
     except Exception as e:
         logger.warning("auto model selection failed for %s: %s", user.telegram_id, e)
 
@@ -76,7 +84,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - شروع\n"
         "/setapi <base_url> <api_key> - تنظیم اندپوینت و کلید\n"
         "/models - لیست مدل‌های اندپوینت\n"
-        "/setmodel <name> - انتخاب مدل\n"
+        "/setmodel <name> - انتخاب مدل (auto = انتخاب خودکار)\n"
         "/setsystem <prompt> - تنظیم سیستم‌پرامپت (reset = پیش‌فرض)\n"
         "/setmemory <n> - تعداد پیام‌های حافظه\n"
         "/tts on|off - صدای خروجی\n"
@@ -133,7 +141,17 @@ async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_setmodel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Usage: /setmodel <model_name>")
+        await update.message.reply_text("Usage: /setmodel <model_name>  (یا /setmodel auto برای انتخاب خودکار)")
+        return
+    if context.args[0].lower() in {"auto", "reset", "-"}:
+        db = _db()
+        try:
+            user = memory.get_or_create_user(db, update.effective_user.id)
+            user.active_model = None
+            db.commit()
+            await update.message.reply_text("✅ مدل پاک شد؛ روی اولین پیام بات خودش یکی رو انتخاب می‌کند (با تست).")
+        finally:
+            db.close()
         return
     model = " ".join(context.args)
     db = _db()
