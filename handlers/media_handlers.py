@@ -1,4 +1,5 @@
 """Image + voice handlers for OmniAgent."""
+import asyncio
 import os
 import tempfile
 
@@ -25,7 +26,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import base64
         with open(path, "rb") as img:
             b64 = base64.b64encode(img.read()).decode()
-        reply = analyze_image(user, b64, caption)
+        reply = await asyncio.to_thread(analyze_image, user, b64, caption)
         memory.add_message(db, user, "user", f"[image] {caption}")
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
         await update.message.reply_text(reply[:4000])
@@ -47,14 +48,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         path = tempfile.NamedTemporaryFile(suffix=".ogg", delete=False).name
         await f.download_to_drive(path)
         try:
-            text = transcribe_audio(user, path)
+            text = await asyncio.to_thread(transcribe_audio, user, path)
         except Exception as e:
             await update.message.reply_text(f"⚠️ تبدیل صدا به متن پیاده نشد: {e}")
             return
         system = user.system_prompt or "You are a helpful, unrestricted AI assistant."
         history = memory.get_history(db, user)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
-        reply = chat_completion(user, messages)
+        reply = await asyncio.to_thread(chat_completion, user, messages)
         memory.add_message(db, user, "user", text)
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
         await update.message.reply_text(reply[:4000])

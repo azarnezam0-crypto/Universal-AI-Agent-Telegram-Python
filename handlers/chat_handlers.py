@@ -1,4 +1,5 @@
 """Core chat + setup handlers for OmniAgent."""
+import asyncio
 import os
 
 from telegram import Update
@@ -75,7 +76,7 @@ async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
         try:
-            models = fetch_models(user)
+            models = await asyncio.to_thread(fetch_models, user)
         except Exception as e:
             await update.message.reply_text(f"⚠️ نتونستم مدل‌ها رو بگیرم: {e}")
             return
@@ -184,7 +185,7 @@ async def cmd_research(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": f"Do deep research on: {topic}. Provide a structured report with cited points and a conclusion."},
         ]
         await update.message.reply_text("🔍 در حال پژوهش...")
-        reply = chat_completion(user, messages)
+        reply = await asyncio.to_thread(chat_completion, user, messages)
         memory.add_message(db, user, "user", f"/research {topic}")
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
         for i in range(0, len(reply), 4000):
@@ -227,7 +228,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
         await update.message.chat.send_action("typing")
         try:
-            reply = chat_completion(user, messages)
+            reply = await asyncio.to_thread(chat_completion, user, messages)
         except Exception as e:
             await update.message.reply_text(f"⚠️ خطا: {e}")
             return
@@ -236,7 +237,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply[:4000])
         if user.tts_enabled:
             try:
-                ogg = text_to_speech(user, reply)
+                ogg = await asyncio.to_thread(text_to_speech, user, reply)
                 with open(ogg, "rb") as f:
                     await update.message.reply_voice(f)
                 os.remove(ogg)

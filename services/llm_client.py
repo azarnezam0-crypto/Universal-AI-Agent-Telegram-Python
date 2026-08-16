@@ -24,7 +24,12 @@ def get_client(user) -> OpenAI:
         api_key = decrypt_key(user.api_key_encrypted)
     else:
         api_key = os.getenv("DEFAULT_API_KEY", "no-key")
-    return OpenAI(base_url=base_url, api_key=api_key)
+    return OpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=90,       # don't hang forever if the endpoint is dead
+        max_retries=2,
+    )
 
 
 def fetch_models(user) -> list[str]:

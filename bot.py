@@ -36,7 +36,10 @@ COMMANDS = [
 
 
 async def _post_init(app):
-    await app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
+    try:
+        await app.bot.set_my_commands([BotCommand(c, d) for c, d in COMMANDS])
+    except Exception as e:  # bad token / no network at boot shouldn't kill the bot
+        logger.warning("set_my_commands failed (bot still running): %s", e)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -56,7 +59,19 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("OmniAgent starting...")
-    app.run_polling(allowed_updates=["message"])
+    while True:
+        try:
+            app.run_polling(
+                allowed_updates=["message"],
+                bootstrap_retries=10,
+                read_timeout=30,
+                connect_timeout=30,
+                pool_timeout=30,
+            )
+        except Exception as e:  # transient network error shouldn't crash the process
+            logger.error("Polling stopped, restarting in 5s: %s", e, exc_info=True)
+            import time
+            time.sleep(5)
 
 
 if __name__ == "__main__":
