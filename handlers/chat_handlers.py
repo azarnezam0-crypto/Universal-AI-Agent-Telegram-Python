@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from db.session import SessionLocal
 
 logger = logging.getLogger(__name__)
-from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT, run_agentic
+from services.llm_client import encrypt_key, fetch_models, chat_completion, DEFAULT_SYSTEM_PROMPT, run_agentic, pick_default_model
 from services.memory_service import MemoryService
 from services.message_utils import split_message
 from services.tts_service import text_to_speech
@@ -36,6 +36,22 @@ def _agentic_reply(user, messages: list[dict]) -> str:
     except Exception as e:
         logger.warning("agentic tool-call failed, falling back to plain chat: %s", e)
         return chat_completion(user, messages)
+
+
+async def _ensure_model(db, user) -> None:
+    """Auto-pick a chat model on first use so the user never has to /setmodel
+    manually (unless they want a specific one). Skipped if already set or if
+    DEFAULT_MODEL env is provided."""
+    if user.active_model or os.getenv("DEFAULT_MODEL"):
+        return
+    try:
+        models = await asyncio.to_thread(fetch_models, user)
+        if models:
+            user.active_model = pick_default_model(models)
+            db.commit()
+            logger.info("auto-selected model %s for user %s", user.active_model, user.telegram_id)
+    except Exception as e:
+        logger.warning("auto model selection failed for %s: %s", user.telegram_id, e)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,6 +228,7 @@ async def cmd_research(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = _db()
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
+        await _ensure_model(db, user)
         system = user.system_prompt or "You are a deep research assistant."
         messages = [
             {"role": "system", "content": system},
@@ -256,6 +273,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = _db()
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
+        await _ensure_model(db, user)
         system = user.system_prompt or DEFAULT_SYSTEM_PROMPT
         history = memory.get_history(db, user)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]

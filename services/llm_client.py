@@ -73,6 +73,29 @@ def fetch_models(user) -> list[str]:
     return sorted([m.id for m in models.data])
 
 
+# capability-specific model ids we should NOT pick as a default chat model
+_SKIP_HINTS = ("/image", "/tts", "/stt", "/embedding", "/search", "/fetch", "combo")
+_PREF_HINTS = ("gemini", "gpt", "claude", "llama", "flash", "opus", "sonnet", "deepseek", "qwen", "mistral")
+
+
+def pick_default_model(models: list[str]) -> str | None:
+    """Choose a sensible default chat model from a 9Router model list.
+
+    Skips capability-specific ids (image/tts/...), then prefers common chat
+    families, falling back to the first remaining model.
+    """
+    if not models:
+        return None
+    chat_models = [m for m in models if not any(s in m.lower() for s in _SKIP_HINTS)]
+    pool = chat_models or models
+    lowered = [m.lower() for m in pool]
+    for hint in _PREF_HINTS:
+        for m, low in zip(pool, lowered):
+            if hint in low:
+                return m
+    return pool[0]
+
+
 def chat_completion(user, messages: list[dict]) -> str:
     client = get_client(user)
     model = user.active_model or os.getenv("DEFAULT_MODEL", "gpt-4o")
