@@ -45,7 +45,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/setapi <base_url> <api_key> - تنظیم اندپوینت و کلید\n"
         "/models - لیست مدل‌های اندپوینت\n"
         "/setmodel <name> - انتخاب مدل\n"
-        "/setsystem <prompt> - تنظیم سیستم‌پرامپت\n"
+        "/setsystem <prompt> - تنظیم سیستم‌پرامپت (reset = پیش‌فرض)\n"
         "/setmemory <n> - تعداد پیام‌های حافظه\n"
         "/tts on|off - صدای خروجی\n"
         "/profile - پروفایل\n"
@@ -112,7 +112,17 @@ async def cmd_setmodel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_setsystem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Usage: /setsystem <prompt text>")
+        await update.message.reply_text("Usage: /setsystem <prompt text>  (یا /setsystem reset برای بازگشت به پیش‌فرض)")
+        return
+    if context.args[0].lower() in {"reset", "default", "-"}:
+        db = _db()
+        try:
+            user = memory.get_or_create_user(db, update.effective_user.id)
+            user.system_prompt = None
+            db.commit()
+            await update.message.reply_text("✅ سیستم‌پرامپت به پیش‌فرض (DEFAULT_SYSTEM_PROMPT) برگشت.")
+        finally:
+            db.close()
         return
     prompt = " ".join(context.args)
     db = _db()
