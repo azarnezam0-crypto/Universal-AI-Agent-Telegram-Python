@@ -15,7 +15,7 @@ from .chat_handlers import (
     handle_text,
 )
 from .media_handlers import handle_photo, handle_voice
-from .memory_handlers import cmd_history, cmd_forget, cmd_setpref, cmd_sessions, cmd_newchat, cmd_resume
+from .memory_handlers import cmd_history, cmd_forget, cmd_setpref, cmd_sessions, cmd_newchat, cmd_resume, cmd_clearprefs
 from .router_handlers import cmd_image, cmd_web, cmd_fetch
 
 
@@ -36,6 +36,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("forget", cmd_forget))
     app.add_handler(CommandHandler("setpref", cmd_setpref))
+    app.add_handler(CommandHandler("clearprefs", cmd_clearprefs))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("image", cmd_image))
     app.add_handler(CommandHandler("web", cmd_web))

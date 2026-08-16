@@ -103,7 +103,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/image <prompt> - ساخت عکس (مدل: DEFAULT_IMAGE_MODEL)\n"
         "/web <query> - جستجوی وب\n"
         "/fetch <url> - خواندن محتوای صفحه\n"
-        "/setpref <k> <v> - تنظیم دلخواه\n"
+        "/setpref <k> <v> - تنظیم دلخواه (فقط <k> = حذف)\n"
+        "/clearprefs - پاک کردن همهٔ preferenceها\n"
         "💡 در چت معمولی هم بات خودش برای جستجو/خواندن صفحه از وب استفاده می‌کند."
     )
 

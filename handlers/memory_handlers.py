@@ -82,15 +82,37 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setpref(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("Usage: /setpref <key> <value>")
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /setpref <key> <value>  (یا /setpref <key> برای حذف)")
         return
     key = context.args[0]
+    # single-arg form -> delete that preference
+    if len(context.args) == 1:
+        db = SessionLocal()
+        try:
+            user = memory.get_or_create_user(db, update.effective_user.id)
+            if memory.delete_preference(db, user, key):
+                await update.message.reply_text(f"✅ preference «{key}» پاک شد.")
+            else:
+                await update.message.reply_text(f"⚠️ preference «{key}» پیدا نشد.")
+        finally:
+            db.close()
+        return
     value = " ".join(context.args[1:])
     db = SessionLocal()
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
         memory.set_preference(db, user, key, value)
         await update.message.reply_text(f"✅ {key} = {value}")
+    finally:
+        db.close()
+
+
+async def cmd_clearprefs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = SessionLocal()
+    try:
+        user = memory.get_or_create_user(db, update.effective_user.id)
+        n = memory.clear_preferences(db, user)
+        await update.message.reply_text(f"✅ {n} preference پاک شد.")
     finally:
         db.close()

@@ -130,6 +130,27 @@ class MemoryService:
             db.add(UserPreference(telegram_id=user.telegram_id, key=key, value=value))
         db.commit()
 
+    def delete_preference(self, db, user, key) -> bool:
+        pref = (
+            db.query(UserPreference)
+            .filter(UserPreference.telegram_id == user.telegram_id, UserPreference.key == key)
+            .first()
+        )
+        if pref:
+            db.delete(pref)
+            db.commit()
+            return True
+        return False
+
+    def clear_preferences(self, db, user) -> int:
+        deleted = (
+            db.query(UserPreference)
+            .filter(UserPreference.telegram_id == user.telegram_id)
+            .delete()
+        )
+        db.commit()
+        return deleted
+
     def get_preference(self, db, user, key, default=None):
         pref = (
             db.query(UserPreference)
