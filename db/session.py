@@ -47,6 +47,17 @@ def _sync_missing_columns():
             ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
         """))
     logger.info("init_db: synced users columns (added any that were missing)")
+    # The 'sessions' table may predate columns added to the model (e.g. it was
+    # created by an older create_all without telegram_id). create_all only makes
+    # missing TABLES, not missing columns, so patch them here idempotently.
+    with engine.begin() as conn:
+        conn.execute(text("""
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS telegram_id BIGINT;
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS message_count INTEGER;
+        """))
+    logger.info("init_db: synced sessions columns (added any that were missing)")
 
 
 def get_db():
