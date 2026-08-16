@@ -1,6 +1,6 @@
 import logging
 import os
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from db.models import Base
 
@@ -26,25 +26,24 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     # 2) add any missing columns to tables that already exist (e.g. an older
     #    Postgres 'users' table lacking base_url / api_key_encrypted / tts_enabled / ...)
+    #    Hardcoded + idempotent (ADD COLUMN IF NOT EXISTS) so it can't fail on a
+    #    column that's already there, and doesn't depend on schema introspection.
     _sync_missing_columns()
 
 
 def _sync_missing_columns():
-    insp = inspect(engine)
     with engine.begin() as conn:
-        for table in Base.metadata.tables.values():
-            if not insp.has_table(table.name):
-                continue
-            existing = {c["name"] for c in insp.get_columns(table.name)}
-            for col in table.columns:
-                if col.name in existing:
-                    continue
-                # Add as nullable so it never fails on rows that already exist.
-                # Python-side defaults in the models fill the value on insert.
-                conn.execute(
-                    text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type}')
-                )
-                logger.info("init_db: added missing column %s.%s", table.name, col.name)
+        conn.execute(text("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS base_url VARCHAR(500);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key_encrypted TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS active_model VARCHAR(200);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS system_prompt TEXT;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_enabled BOOLEAN;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_voice VARCHAR(50);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS memory_window INTEGER;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
+        """))
+    logger.info("init_db: synced users columns (added any that were missing)")
 
 
 def get_db():
