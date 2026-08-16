@@ -40,15 +40,20 @@ def _agentic_reply(user, messages: list[dict]) -> str:
 
 async def _ensure_model(db, user) -> None:
     """Auto-pick a usable chat model on first use so the user never has to
-    /setmodel manually. Tries ranked candidates with a real probe call and keeps
-    the first that works (skips providers with no credentials)."""
-    if user.active_model or os.getenv("DEFAULT_MODEL"):
+    /setmodel manually. Tries ranked candidates (env DEFAULT_MODEL first, if it
+    actually exists in the list) with a real probe call and keeps the first that
+    works. A DEFAULT_MODEL with no credentials is skipped, not forced."""
+    if user.active_model:
         return
     try:
         models = await asyncio.to_thread(fetch_models, user)
         if not models:
             return
-        for candidate in rank_models(models)[:8]:
+        ranked = rank_models(models)
+        default = os.getenv("DEFAULT_MODEL")
+        if default and default in models:
+            ranked = [default] + ranked
+        for candidate in ranked[:8]:
             try:
                 await asyncio.to_thread(probe_model, user, candidate)
                 user.active_model = candidate
