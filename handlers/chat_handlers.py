@@ -26,16 +26,42 @@ def _db():
     return SessionLocal()
 
 
-def _agentic_reply(user, messages: list[dict]) -> str:
+def _agentic_reply(user, messages: list[dict]) -> tuple:
     """Run an agentic chat turn. Falls back to plain chat if tool-use is
-    disabled or the model/endpoint doesn't support function calling."""
+    disabled or the model/endpoint doesn't support function calling.
+    Returns (text, steps) where steps is the list of tool names used."""
     if os.getenv("AGENTIC_TOOLS", "true").lower() == "false":
-        return chat_completion(user, messages)
+        return chat_completion(user, messages), []
     try:
         return run_agentic(user, messages, TOOL_DEFINITIONS, TOOL_REGISTRY)
     except Exception as e:
         logger.warning("agentic tool-call failed, falling back to plain chat: %s", e)
-        return chat_completion(user, messages)
+        return chat_completion(user, messages), []
+
+
+def _apply_theme(theme: str, text: str) -> str:
+    """Apply a display theme to the assistant reply.
+
+    Themes:
+      default  -> unchanged
+      compact  -> collapse extra blank lines, trim
+      emoji    -> prepend a spark to bare replies
+      markdown -> lightly prettify (fenced headers get highlighted)
+    """
+    theme = (theme or "default").lower()
+    if theme == "compact":
+        import re
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+    if theme == "emoji":
+        if text and not text[0].isspace() and not any(
+            text.startswith(p) for p in ("✨", "🤖", "💡", "⚠️", "🔍", "🎨", "📄", "📢")
+        ):
+            return "✨ " + text
+        return text
+    if theme == "markdown":
+        # leave the model's own markdown intact; just ensure a trailing newline
+        return text.rstrip() + "\n" if text else text
+    return text
 
 
 async def _ensure_model(db, user) -> None:
@@ -94,6 +120,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/setmemory <n> - تعداد پیام‌های حافظه\n"
         "/tts on|off - صدای خروجی\n"
         "/profile - پروفایل\n"
+        "/status - وضعیت فعلی بات\n"
+        "/verbose 0|1|2 - سطح نمایش ابزارها\n"
+        "/theme default|compact|emoji|markdown - تم نمایش\n"
+        "/skill add|list|use|del - اسکیل/پرسونای شخصی\n"
         "/history - تاریخچه سشن فعلی\n"
         "/sessions - لیست سشن‌ها\n"
         "/newchat - شروع سشن جدید (قبلی محفوظ)\n"
@@ -236,6 +266,10 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"active_model: {user.active_model or '(پیش‌فرض)'}",
             f"tts: {'روشن' if user.tts_enabled else 'خاموش'} ({user.tts_voice})",
             f"memory_window: {user.memory_window}",
+            f"verbose: {prefs.get('verbose', '1')}",
+            f"theme: {prefs.get('theme', 'default')}",
+            f"active_skill: {prefs.get('active_skill', '(هیچ‌کدام)')}",
+            f"skills: {len(memory.list_skills(db, user))} ذخیره‌شده",
             f"system_prompt: {user.system_prompt[:200] if user.system_prompt else '(پیش‌فرض)'}",
         ]
         if prefs:
@@ -243,6 +277,81 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines += [f"  {k}: {v}" for k, v in prefs.items()]
         for part in split_message("\n".join(lines)):
             await update.message.reply_text(part)
+    finally:
+        db.close()
+
+
+async def cmd_verbose(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "Usage: /verbose 0|1|2\n"
+            "0 = فقط پاسخ نهایی (بدون لاگ ابزار)\n"
+            "1 = نام ابزارهای استفاده‌شده (پیش‌فرض)\n"
+            "2 = جزئیات بیشتر (تعداد فراخوانی)"
+        )
+        return
+    level = int(context.args[0])
+    if level not in (0, 1, 2):
+        await update.message.reply_text("فقط 0، 1 یا 2 مجازه.")
+        return
+    db = _db()
+    try:
+        user = memory.get_or_create_user(db, update.effective_user.id)
+        memory.set_preference(db, user, "verbose", str(level))
+        await update.message.reply_text(f"✅ سطح نمایش ابزار = {level}")
+    finally:
+        db.close()
+
+
+async def cmd_theme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /theme <default|compact|emoji|markdown>\n"
+            "default  = بدون تغییر\n"
+            "compact  = حذف خطوط خالی اضافه\n"
+            "emoji    = افزودن ✨ به ابتدای پاسخ\n"
+            "markdown = رعایت فرمت‌بندی مارک‌داون"
+        )
+        return
+    theme = context.args[0].lower()
+    if theme not in ("default", "compact", "emoji", "markdown"):
+        await update.message.reply_text("تم معتبر: default, compact, emoji, markdown")
+        return
+    db = _db()
+    try:
+        user = memory.get_or_create_user(db, update.effective_user.id)
+        memory.set_preference(db, user, "theme", theme)
+        await update.message.reply_text(f"✅ تم = {theme}")
+    finally:
+        db.close()
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = _db()
+    try:
+        user = memory.get_or_create_user(db, update.effective_user.id)
+        sess = memory.get_current_session(db, user)
+        prefs = memory.get_all_preferences(db, user)
+        agentic = os.getenv("AGENTIC_TOOLS", "true").lower() != "false"
+        tools = list(TOOL_REGISTRY.keys()) if agentic else []
+        skill = prefs.get("active_skill")
+        if skill:
+            skill_mark = f"{skill} {'✅' if memory.get_skill(db, user, skill) else '(حذف شده!)'}"
+        else:
+            skill_mark = "(هیچ‌کدام)"
+        lines = [
+            "📊 وضعیت OmniAgent:",
+            f"model: {user.active_model or os.getenv('DEFAULT_MODEL', '(انتخاب خودکار)')}",
+            f"session: #{sess.id} ({sess.message_count} پیام)",
+            f"verbose: {prefs.get('verbose', '1')}",
+            f"theme: {prefs.get('theme', 'default')}",
+            f"active_skill: {skill_mark}",
+            f"agentic tools: {'روشن' if agentic else 'خاموش'} ({', '.join(tools) or '—'})",
+            f"tts: {'روشن' if user.tts_enabled else 'خاموش'} ({user.tts_voice})",
+            f"memory_window: {user.memory_window}",
+            f"skills ذخیره‌شده: {len(memory.list_skills(db, user))}",
+        ]
+        await update.message.reply_text("\n".join(lines))
     finally:
         db.close()
 
@@ -301,17 +410,45 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = memory.get_or_create_user(db, update.effective_user.id)
         await _ensure_model(db, user)
+
+        verbose = int(memory.get_preference(db, user, "verbose", "1") or "1")
+        theme = memory.get_preference(db, user, "theme", "default") or "default"
+
+        # active skill (if any) is appended to the system prompt so it shapes
+        # every reply without overwriting the user's base persona.
         system = user.system_prompt or DEFAULT_SYSTEM_PROMPT
+        skill_name = memory.get_preference(db, user, "active_skill")
+        if skill_name:
+            skill = memory.get_skill(db, user, skill_name)
+            if skill:
+                system = f"{system}\n\n=== ACTIVE SKILL: {skill.name} ===\n{skill.instructions}"
+
         history = memory.get_history(db, user)
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": text}]
         await update.message.chat.send_action("typing")
         try:
-            reply = await asyncio.to_thread(_agentic_reply, user, messages)
+            reply, steps = await asyncio.to_thread(_agentic_reply, user, messages)
         except Exception as e:
             await update.message.reply_text(f"⚠️ خطا: {e}")
             return
         memory.add_message(db, user, "user", text)
         memory.add_message(db, user, "assistant", reply, model_used=user.active_model)
+
+        # show the tools the agent used (verbose 1 = names, 2 = names + short note)
+        if verbose >= 1 and steps:
+            seen = []
+            for s in steps:
+                if s not in seen:
+                    seen.append(s)
+            note = "🛠 استفاده شد: " + ", ".join(seen)
+            if verbose >= 2:
+                note += f"\n🔢 تعداد فراخوانی ابزار: {len(steps)}"
+            try:
+                await update.message.reply_text(note)
+            except Exception:
+                pass
+
+        reply = _apply_theme(theme, reply)
         for part in split_message(reply):
             await update.message.reply_text(part)
         if user.tts_enabled:

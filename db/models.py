@@ -53,3 +53,13 @@ class UserPreference(Base):
     telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
     key = Column(String(100), nullable=False)
     value = Column(Text, nullable=False)
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    instructions = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

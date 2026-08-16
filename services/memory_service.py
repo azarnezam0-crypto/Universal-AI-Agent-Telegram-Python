@@ -1,5 +1,5 @@
 from sqlalchemy import desc
-from db.models import User, ConversationHistory, Session, UserPreference
+from db.models import User, ConversationHistory, Session, UserPreference, Skill
 
 
 class MemoryService:
@@ -150,6 +150,39 @@ class MemoryService:
         )
         db.commit()
         return deleted
+
+    # ---- user-defined skills (personas / behavior snippets) ----
+
+    def add_skill(self, db, user, name, instructions):
+        existing = self.get_skill(db, user, name)
+        if existing:
+            existing.instructions = instructions
+        else:
+            db.add(Skill(telegram_id=user.telegram_id, name=name, instructions=instructions))
+        db.commit()
+
+    def get_skill(self, db, user, name):
+        return (
+            db.query(Skill)
+            .filter(Skill.telegram_id == user.telegram_id, Skill.name == name)
+            .first()
+        )
+
+    def list_skills(self, db, user):
+        return (
+            db.query(Skill)
+            .filter(Skill.telegram_id == user.telegram_id)
+            .order_by(Skill.name)
+            .all()
+        )
+
+    def delete_skill(self, db, user, name) -> bool:
+        s = self.get_skill(db, user, name)
+        if s:
+            db.delete(s)
+            db.commit()
+            return True
+        return False
 
     def get_preference(self, db, user, key, default=None):
         pref = (

@@ -12,10 +12,13 @@ from .chat_handlers import (
     cmd_profile,
     cmd_research,
     cmd_broadcast,
+    cmd_verbose,
+    cmd_theme,
+    cmd_status,
     handle_text,
 )
 from .media_handlers import handle_photo, handle_voice
-from .memory_handlers import cmd_history, cmd_forget, cmd_setpref, cmd_sessions, cmd_newchat, cmd_resume, cmd_clearprefs
+from .memory_handlers import cmd_history, cmd_forget, cmd_setpref, cmd_sessions, cmd_newchat, cmd_resume, cmd_clearprefs, cmd_skill
 from .router_handlers import cmd_image, cmd_web, cmd_fetch
 
 
@@ -29,6 +32,9 @@ def register_handlers(app):
     app.add_handler(CommandHandler("setmemory", cmd_setmemory))
     app.add_handler(CommandHandler("tts", cmd_tts))
     app.add_handler(CommandHandler("profile", cmd_profile))
+    app.add_handler(CommandHandler("verbose", cmd_verbose))
+    app.add_handler(CommandHandler("theme", cmd_theme))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("research", cmd_research))
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("sessions", cmd_sessions))
@@ -37,6 +43,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("forget", cmd_forget))
     app.add_handler(CommandHandler("setpref", cmd_setpref))
     app.add_handler(CommandHandler("clearprefs", cmd_clearprefs))
+    app.add_handler(CommandHandler("skill", cmd_skill))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("image", cmd_image))
     app.add_handler(CommandHandler("web", cmd_web))

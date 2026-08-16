@@ -116,3 +116,77 @@ async def cmd_clearprefs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ {n} preference پاک شد.")
     finally:
         db.close()
+
+
+async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Skill = تکه‌پرامپت / پرسونای ذخیره‌شده که لایو به چت اضافه می‌شه.\n"
+            "/skill add <name> | <instructions...>  - ذخیره اسکیل\n"
+            "/skill list  - لیست اسکیل‌ها (✅ = فعال)\n"
+            "/skill use <name>  - فعال‌سازی\n"
+            "/skill del <name>  - حذف"
+        )
+        return
+    sub = context.args[0].lower()
+    db = SessionLocal()
+    try:
+        user = memory.get_or_create_user(db, update.effective_user.id)
+        if sub == "list":
+            skills = memory.list_skills(db, user)
+            if not skills:
+                await update.message.reply_text(
+                    "هیچ skillی نداری. بساز:\n/skill add <name> | <دستورالعمل>"
+                )
+                return
+            active = memory.get_preference(db, user, "active_skill")
+            lines = [f"🧠 Skillها ({len(skills)}):"]
+            for s in skills:
+                mark = " ✅" if s.name == active else ""
+                lines.append(f"• {s.name}{mark}")
+            await update.message.reply_text("\n".join(lines))
+            return
+        if sub == "add":
+            rest = " ".join(context.args[1:])
+            if "|" not in rest:
+                await update.message.reply_text("فرمت: /skill add <name> | <دستورالعمل>")
+                return
+            name, _, instructions = rest.partition("|")
+            name = name.strip()
+            instructions = instructions.strip()
+            if not name or not instructions:
+                await update.message.reply_text("نام و دستورالعمل هر دو لازمه.")
+                return
+            memory.add_skill(db, user, name, instructions)
+            await update.message.reply_text(
+                f"✅ Skill «{name}» ذخیره شد. با /skill use {name} فعالش کن."
+            )
+            return
+        if sub == "use":
+            if len(context.args) < 2:
+                await update.message.reply_text("Usage: /skill use <name>")
+                return
+            name = context.args[1].strip()
+            if not memory.get_skill(db, user, name):
+                await update.message.reply_text(f"⛔ Skill «{name}» وجود ندارد.")
+                return
+            memory.set_preference(db, user, "active_skill", name)
+            await update.message.reply_text(
+                f"✅ Skill «{name}» فعال شد و به سیستم‌پرامپت هر پیام اضافه می‌شه."
+            )
+            return
+        if sub == "del":
+            if len(context.args) < 2:
+                await update.message.reply_text("Usage: /skill del <name>")
+                return
+            name = context.args[1].strip()
+            if memory.delete_skill(db, user, name):
+                if memory.get_preference(db, user, "active_skill") == name:
+                    memory.delete_preference(db, user, "active_skill")
+                await update.message.reply_text(f"✅ Skill «{name}» حذف شد.")
+            else:
+                await update.message.reply_text(f"⛔ Skill «{name}» پیدا نشد.")
+            return
+        await update.message.reply_text("زیر‌دستور ناشناخته. بدون آرگومان بزن: /skill")
+    finally:
+        db.close()

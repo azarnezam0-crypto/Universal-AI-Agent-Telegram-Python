@@ -190,6 +190,7 @@ def run_agentic(user, messages: list[dict], tool_defs: list[dict], tool_registry
     client = get_client(user)
     model = user.active_model or os.getenv("DEFAULT_MODEL", "gpt-4o")
     convo = list(messages)
+    steps: list = []
     for _ in range(max_iter):
         resp = client.chat.completions.create(
             model=model,
@@ -201,7 +202,7 @@ def run_agentic(user, messages: list[dict], tool_defs: list[dict], tool_registry
         )
         msg = resp.choices[0].message
         if not msg.tool_calls:
-            return msg.content or ""
+            return msg.content or "", steps
         # record the assistant turn that requested the tools
         convo.append({
             "role": "assistant",
@@ -217,6 +218,7 @@ def run_agentic(user, messages: list[dict], tool_defs: list[dict], tool_registry
         })
         for tc in msg.tool_calls:
             name = tc.function.name
+            steps.append(name)
             try:
                 args = json.loads(tc.function.arguments or "{}")
             except Exception:
@@ -231,4 +233,4 @@ def run_agentic(user, messages: list[dict], tool_defs: list[dict], tool_registry
                     result = f"Error in {name}: {e}"
             convo.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
     # ran out of iterations — return whatever the model last produced
-    return convo[-1].get("content") or ""
+    return convo[-1].get("content") or "", steps
