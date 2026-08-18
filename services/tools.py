@@ -27,6 +27,10 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "Number of results to return (default 5).",
                     },
+                    "provider": {
+                        "type": "string",
+                        "description": "Provider to use (e.g., 'tavily', 'exa'). Falls back to list if not specified.",
+                    },
                 },
                 "required": ["query"],
             },
@@ -44,6 +48,10 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "Full URL to fetch."},
+                    "provider": {
+                        "type": "string",
+                        "description": "Provider to use (e.g., 'jina-reader', 'firecrawl'). Falls back to list if not specified.",
+                    },
                 },
                 "required": ["url"],
             },
@@ -52,8 +60,8 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def _web_search(user, query: str, max_results: int = 5) -> str:
-    data = web_search(user, query, int(max_results))
+def _web_search(user, query: str, max_results: int = 5, provider: str = None) -> str:
+    data = web_search(user, query, int(max_results), provider)
     results = data.get("results") or []
     if not results:
         return "No results found."
@@ -63,8 +71,8 @@ def _web_search(user, query: str, max_results: int = 5) -> str:
     return "\n\n".join(lines)
 
 
-def _web_fetch(user, url: str) -> str:
-    data = web_fetch(user, url, "markdown", 8000)
+def _web_fetch(user, url: str, provider: str = None) -> str:
+    data = web_fetch(user, url, "markdown", 8000, provider)
     content = data.get("content") or {}
     text = content.get("text") if isinstance(content, dict) else None
     if not text:
